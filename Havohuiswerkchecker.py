@@ -6,7 +6,7 @@ import docx
 import pandas as pd
 import re
 
-# 1. API instellen
+# 1. API instellen (Let op dat de API key in je st.secrets staat)
 client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
 # CSS voor de Mexicaanse vlag achtergrond
@@ -22,16 +22,13 @@ achtergrond_css = """
 """
 st.markdown(achtergrond_css, unsafe_allow_html=True)
 
-# Nieuwe titel met een icoontje
 st.title("🗺️ Formatieve toets Aardrijkskunde")
 st.markdown("Welkom! Vul je gegevens hieronder in om te beginnen met je overhoring.")
 
 # Functie om tekst uit een Word document te halen
 def lees_docx(file_path):
     doc = docx.Document(file_path)
-    volledige_tekst = []
-    for para in doc.paragraphs:
-        volledige_tekst.append(para.text)
+    volledige_tekst = [para.text for para in doc.paragraphs]
     return "\n".join(volledige_tekst)
 
 # 2. Zoek alle Word-documenten in de map 'lesmateriaal Havo'
@@ -41,11 +38,11 @@ if not os.path.exists(les_map):
 
 beschikbare_bestanden = [f for f in os.listdir(les_map) if f.endswith('.docx')]
 
-# 3. Check of er bestanden zijn, anders instructie om te mailen
+# 3. Check of er bestanden zijn
 if not beschikbare_bestanden:
     st.warning("Er is op dit moment geen lesmateriaal beschikbaar. Stuur even een mailtje naar je docent.")
 else:
-    # 4. Keuzemenu voor de leerling (nu weer bovenaan de hoofdpagina)
+    # 4. Keuzemenu voor de leerling
     st.header("📝 Jouw Gegevens")
     gekozen_les = st.selectbox("Kies de les die je wilt oefenen:", beschikbare_bestanden)
     
@@ -54,7 +51,7 @@ else:
     
     voornaam = st.text_input("Vul je voornaam in om te beginnen:")
     
-    st.divider() # Trekt een mooi lijntje tussen de gegevens en de chat
+    st.divider()
 
     if voornaam and cluster and gekozen_les:
         
@@ -68,7 +65,7 @@ else:
             st.session_state.actieve_voornaam = voornaam
             st.session_state.actief_cluster = cluster
             st.session_state.berichten = [] 
-            st.session_state.interaction_id = None
+            st.session_state.chat = None
             
             les_pad = os.path.join(les_map, gekozen_les)
             les_tekst = ""
@@ -80,9 +77,8 @@ else:
                     st.error(f"Er ging iets mis met het lezen van het bestand: {e}")
 
             if les_tekst:
-                # 6. Start gesprek met instructies
                 eerste_input = f"""
-Je bent docent aardrijkskunde (bovenbouw). Toon: professioneel, zakelijk.
+Je bent docent aardrijkskunde (bovenbouw). Toon: professioneel, zakelijk, maar wel aanmoedigend.
 Baseer de ONDERWERPEN op de theorie. Geef NOOIT zelf direct het antwoord (behalve als een leerling een vraag definitief fout heeft).
 
 --- START THEORIE ---
@@ -93,7 +89,7 @@ Volg EXACT deze chronologische structuur:
 
 **Fase 1: Intro**
 1. Zakelijke groet.
-2. Deel een kort, verrassend wist-je-datje over **slim leren, de werking van het brein bij leren of effectieve studiemethodes** (dus NIET over aardrijkskunde).
+2. Geef een duidelijke waarschuwing: "Let op: let goed op je spelling, want spelfouten leiden tot puntaftrek!"
 3. Vraag daarna of het boek dicht is door de leerling deze 3 opties te geven in een lijstje:
    [A] Ik heb de stof bestudeerd en ik ga het helemaal zelf doen.
    [B] Ik heb de stof niet bestudeerd, maar ik ga het gewoon proberen.
@@ -102,14 +98,13 @@ Volg EXACT deze chronologische structuur:
 
 **Fase 2: Overhoring (EXACT 5 vragen: 2 reproductie, 3 inzicht)**
 - STOPPEN: Kiest de leerling optie C of typt hij "stop"? Breek alles dan af! Zeg UITSLUITEND: "Ga de stof nogmaals bestuderen en probeer het dan nog eens! [EINDE_OVERHORING]"
-- CIJFER BIJHOUDEN: Start op 10. Helemaal fout = -2. Gedeeltelijk = -1. Spelfout = -0.5 (max -2 in totaal). Cijfer mag negatief zijn.
-- COULANT NAKIJKEN: De leerlingen leren uit een ánder boek. Antwoorden hoeven dus NIET exact overeen te komen met jouw theorie-tekst. Reken het GOED als de leerling in eigen woorden laat zien dat hij/zij het snapt.
+- CIJFER BIJHOUDEN: Start op 10. Helemaal fout = -2. Spelfout = -0.5 (max -2 aftrek voor spelling in totaal). Cijfer mag negatief zijn.
+- COULANT NAKIJKEN (HUISWERKCONTROLE): Dit is een huiswerkcontrole, geen formele toets. Reken een antwoord GOED (geen aftrek) als de leerling laat zien dat hij/zij het snapt, zelfs als het antwoord niet helemáál volledig is. Geef in dat geval wél direct als feedback wat het volledige antwoord had moeten zijn, en ga daarna door naar de volgende vraag.
+- ZINSBOUW: Een antwoord is qua formulering akkoord zolang het minimaal een onderwerp en één of meerdere werkwoorden bevat. Als dit ontbreekt (bijv. de leerling typt slechts één los woord), keur je het nog niet direct fout, maar zeg je: "Inhoudelijk zit je in de goede richting, maar formuleer je antwoord even in een zin met minimaal een onderwerp en een werkwoord."
 - Reproductie: Vraag ALTIJD "Wat betekent [begrip]?".
 - 1 vraag tegelijk. Wacht op antwoord.
-- VOLLEDIGE ZINNEN: Bij een los woord keur je het nog niet goed. Zeg: "Inhoudelijk juist, maar formuleer het als een volledige zin."
-- SPELLING: Corrigeer spelfouten direct en tel de aftrek mee.
-- DEELS GOED / IN EIGEN WOORDEN: Reken begrip goed. Indien onvolledig: stel 1 hulpvraag.
-- FOUT: De leerling krijgt 1 herkansing per vraag. Wéér fout? Reken fout (-2), geef het goede antwoord en ga door naar de VOLGENDE vraag. Altijd 5 vragen behandelen.
+- SPELLING: Corrigeer spelfouten direct, benoem ze kort, en tel de aftrek mee.
+- FOUT: Is het antwoord echt onjuist? De leerling krijgt 1 herkansing per vraag. Wéér fout? Reken fout (-2), geef het goede antwoord en ga door naar de VOLGENDE vraag. Altijd 5 vragen behandelen.
 
 **Fase 3: Afronding**
 1. Zodra alle 5 vragen zijn geweest, vraag je EERST hoe de leerling de toets gemaakt heeft met deze 2 opties:
@@ -119,20 +114,19 @@ Volg EXACT deze chronologische structuur:
 2. Na hun antwoord: Geef gerichte feedback en laat de score-berekening zien.
 3. Noteer het cijfer EXACT zo: [CIJFER: X]. Sluit daarna je bericht af met EXACT: [EINDE_OVERHORING].
 """
-                interaction = client.interactions.create(
-                    model="gemini-3.1-flash-lite",
-                    input=eerste_input
-                )
+                # Start een chatsessie op de correcte manier
+                chat = client.chats.create(model="gemini-1.5-flash")
+                st.session_state.chat = chat
                 
-                st.session_state.interaction_id = interaction.id
-                st.session_state.berichten.append(("assistant", interaction.output_text))
+                response = chat.send_message(eerste_input)
+                st.session_state.berichten.append(("assistant", response.text))
 
-        # 7. Weergave van alle berichten in de app MET AVATARS
+        # 7. Weergave van alle berichten in de app
         if "berichten" in st.session_state:
             for role, text in st.session_state.berichten:
                 avatar_icoon = "🧑‍🏫" if role == "assistant" else "🎓"
                 
-                # Verberg de eind-tags
+                # Verberg de API-sturings elementen voor de leerling
                 weergave_tekst = re.sub(r'\[CIJFER:\s*([\-\d\,\.]+)\]', '', text)
                 weergave_tekst = weergave_tekst.replace("[EINDE_OVERHORING]", "")
                 
@@ -143,21 +137,15 @@ Volg EXACT deze chronologische structuur:
         prompt = st.chat_input("Typ hier je antwoord of keuze...")
 
         # 9. Invoer verwerken en API aanroepen
-        if prompt and "interaction_id" in st.session_state and st.session_state.interaction_id is not None:
+        if prompt and "chat" in st.session_state and st.session_state.chat is not None:
             
             st.session_state.berichten.append(("user", prompt))
             with st.chat_message("user", avatar="🎓"):
                 st.markdown(prompt)
             
             with st.spinner("De docent schrijft een reactie..."):
-                vervolg_interaction = client.interactions.create(
-                    model="gemini-3.1-flash-lite",
-                    previous_interaction_id=st.session_state.interaction_id,
-                    input=prompt
-                )
-            
-            st.session_state.interaction_id = vervolg_interaction.id
-            output_tekst = vervolg_interaction.output_text
+                vervolg_response = st.session_state.chat.send_message(prompt)
+                output_tekst = vervolg_response.text
             
             st.session_state.berichten.append(("assistant", output_tekst))
             
@@ -167,12 +155,11 @@ Volg EXACT deze chronologische structuur:
             with st.chat_message("assistant", avatar="🧑‍🏫"):
                 st.markdown(weergave_tekst_bot.strip())
                 
-            # Als de overhoring klaar is, of afgebroken
+            # Als de overhoring klaar is, of afgebroken, sla het resultaat op
             if "[EINDE_OVERHORING]" in output_tekst:
-                
                 cijfer_match = re.search(r'\[CIJFER:\s*([\-\d\,\.]+)\]', output_tekst)
                 cijfer = ""
-                cijfer_waarde = 0.0 # Standaardwaarde om mee te rekenen
+                cijfer_waarde = 0.0
                 
                 if cijfer_match:
                     cijfer_str = cijfer_match.group(1).replace(',', '.') 
@@ -183,7 +170,6 @@ Volg EXACT deze chronologische structuur:
                         cijfer = cijfer_str
                 
                 schone_beoordeling = weergave_tekst_bot.strip()
-
                 excel_bestand = "leerling_resultaten_Havo.xlsx"
                 
                 nieuw_resultaat = pd.DataFrame([{
@@ -206,13 +192,68 @@ Volg EXACT deze chronologische structuur:
                     
                 df_compleet.to_excel(excel_bestand, index=False)
                 
-                # Check of er is afgebroken, of dat er een cijfer gehaald is
                 if "Ga de stof nogmaals bestuderen" in output_tekst:
                     st.info("De overhoring is afgebroken. Succes met studeren en tot de volgende keer!")
                 else:
-                    # Ballonnen alléén bij een 6.0 of hoger
                     if cijfer_waarde >= 6.0:
                         st.balloons()
                         st.success("🎉 Goed gewerkt, je hebt een voldoende! Je resultaten zijn opgeslagen. Je kunt dit venster nu sluiten.")
                     else:
                         st.success("✅ Je resultaten zijn opgeslagen. Blijf goed oefenen, volgende keer gaat het vast beter! Je kunt dit venster nu sluiten.")
+
+# --- DOCENTENPANEEL (VOLLEDIG BEVEILIGD) ---
+st.sidebar.divider()
+st.sidebar.header("👨‍🏫 Docentenpaneel")
+
+wachtwoord = st.sidebar.text_input("Wachtwoord docent:", type="password")
+
+# Alles hieronder is onzichtbaar totdat het juiste wachtwoord is ingevoerd
+if wachtwoord == "M@@rt3n": 
+    
+    excel_bestand = "leerling_resultaten_Havo.xlsx"
+
+    # Statistieken & Downloads
+    if os.path.exists(excel_bestand):
+        df = pd.read_excel(excel_bestand)
+        df['Cijfer'] = pd.to_numeric(df['Cijfer'], errors='coerce')
+        
+        st.sidebar.subheader("📊 Live Statistieken")
+        gemiddelde = df['Cijfer'].mean()
+        st.sidebar.metric(label="Gemiddeld Cijfer (Alle clusters)", value=f"{gemiddelde:.1f}")
+        
+        st.sidebar.write("**Aantal deelnames per cluster:**")
+        st.sidebar.dataframe(df['Cluster'].value_counts(), use_container_width=True)
+        
+        st.sidebar.divider()
+        
+        st.sidebar.subheader("📥 Resultaten Exporteren")
+        with open(excel_bestand, "rb") as file:
+            st.sidebar.download_button(
+                label="Download Resultaten (Excel)",
+                data=file,
+                file_name=f"Resultaten_Aardrijkskunde_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+    else:
+        st.sidebar.info("Er zijn nog geen resultaten opgeslagen.")
+
+    st.sidebar.divider()
+
+    # Bestand Upload (Nu ook veilig achter het wachtwoord)
+    st.sidebar.subheader("📄 Nieuwe les uploaden")
+    st.sidebar.write("Voeg direct een nieuw Word-document toe aan het keuzemenu.")
+    
+    uploaded_file = st.sidebar.file_uploader("Kies een .docx bestand", type=["docx"])
+    
+    if uploaded_file is not None:
+        file_path = os.path.join(les_map, uploaded_file.name)
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        st.sidebar.success(f"✅ '{uploaded_file.name}' is geüpload!")
+        
+        if st.sidebar.button("Vernieuw app om les te tonen"):
+            st.rerun()
+
+elif wachtwoord != "":
+    st.sidebar.error("Onjuist wachtwoord.")
