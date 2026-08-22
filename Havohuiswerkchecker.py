@@ -5,47 +5,71 @@ import os
 import docx
 import pandas as pd
 import re
+import requests # Nodig voor de dagelijkse foto
 
-# 1. API instellen (Let op dat de API key in je st.secrets staat)
+# 1. API instellen
 client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
-# CSS voor de Mexicaanse vlag achtergrond
-achtergrond_css = """
+# Functie om de Picture of the Day op te halen
+@st.cache_data(ttl=43200) # Sla de foto 12 uur op in het geheugen
+def haal_wikimedia_potd_url_op():
+    vandaag = datetime.datetime.now().strftime('%Y-%m-%d')
+    api_url = f"https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&generator=images&titles=Template:Potd/{vandaag}&iiprop=url"
+    
+    standaard_bg = "https://images.unsplash.com/photo-1614730321146-b6fa6a46bcb4?q=80&w=2000&auto=format&fit=crop"
+    
+    try:
+        response = requests.get(api_url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            pages = data.get("query", {}).get("pages", {})
+            for page_id, info in pages.items():
+                if "imageinfo" in info:
+                    url = info["imageinfo"][0].get("url")
+                    if url:
+                        return url
+    except Exception:
+        pass
+        
+    return standaard_bg
+
+achtergrond_url = haal_wikimedia_potd_url_op()
+
+# CSS voor de dynamische achtergrond
+achtergrond_css = f"""
 <style>
-.stApp {
-    background-image: linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)), url("https://upload.wikimedia.org/wikipedia/commons/f/fc/Flag_of_Mexico.svg");
+.stApp {{
+    background-image: linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)), url("{achtergrond_url}");
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
-}
+}}
 </style>
 """
 st.markdown(achtergrond_css, unsafe_allow_html=True)
 
-st.title("🗺️ Formatieve toets Aardrijkskunde")
+st.title("🗺️ Formatieve toets Aardrijkskunde (Havo)")
 st.markdown("Welkom! Vul je gegevens hieronder in om te beginnen met je overhoring.")
 
-# Functie om tekst uit een Word document te halen
 def lees_docx(file_path):
     doc = docx.Document(file_path)
     volledige_tekst = [para.text for para in doc.paragraphs]
     return "\n".join(volledige_tekst)
 
-# 2. Zoek alle Word-documenten in de map 'lesmateriaal Havo'
+# Specifieke map voor Havo
 les_map = "lesmateriaal Havo"
 if not os.path.exists(les_map):
     os.makedirs(les_map)
 
 beschikbare_bestanden = [f for f in os.listdir(les_map) if f.endswith('.docx')]
 
-# 3. Check of er bestanden zijn
 if not beschikbare_bestanden:
     st.warning("Er is op dit moment geen lesmateriaal beschikbaar. Stuur even een mailtje naar je docent.")
 else:
-    # 4. Keuzemenu voor de leerling
     st.header("📝 Jouw Gegevens")
     gekozen_les = st.selectbox("Kies de les die je wilt oefenen:", beschikbare_bestanden)
     
+    # Specifieke Havo clusters
     cluster_opties = ["4Hak1", "4Hak2", "4Hak3", "4Hak4", "5Hak1", "5Hak2", "5Hak3"]
     cluster = st.selectbox("Kies je cluster:", cluster_opties)
     
@@ -54,8 +78,6 @@ else:
     st.divider()
 
     if voornaam and cluster and gekozen_les:
-        
-        # 5. Start of reset de les
         if ("huidige_les" not in st.session_state or 
             st.session_state.huidige_les != gekozen_les or 
             st.session_state.get("actieve_voornaam") != voornaam or
@@ -78,7 +100,7 @@ else:
 
             if les_tekst:
                 eerste_input = f"""
-Je bent docent aardrijkskunde (bovenbouw). Toon: professioneel, zakelijk, maar wel aanmoedigend.
+Je bent docent aardrijkskunde (bovenbouw Havo). Toon: professioneel, zakelijk, maar wel aanmoedigend.
 Baseer de ONDERWERPEN op de theorie. Geef NOOIT zelf direct het antwoord (behalve als een leerling een vraag definitief fout heeft).
 
 --- START THEORIE ---
@@ -114,31 +136,23 @@ Volg EXACT deze chronologische structuur:
 2. Na hun antwoord: Geef gerichte feedback en laat de score-berekening zien.
 3. Noteer het cijfer EXACT zo: [CIJFER: X]. Sluit daarna je bericht af met EXACT: [EINDE_OVERHORING].
 """
-                # Start een chatsessie op de correcte manier
                 chat = client.chats.create(model="gemini-1.5-flash")
                 st.session_state.chat = chat
                 
                 response = chat.send_message(eerste_input)
                 st.session_state.berichten.append(("assistant", response.text))
 
-        # 7. Weergave van alle berichten in de app
         if "berichten" in st.session_state:
             for role, text in st.session_state.berichten:
                 avatar_icoon = "🧑‍🏫" if role == "assistant" else "🎓"
-                
-                # Verberg de API-sturings elementen voor de leerling
                 weergave_tekst = re.sub(r'\[CIJFER:\s*([\-\d\,\.]+)\]', '', text)
                 weergave_tekst = weergave_tekst.replace("[EINDE_OVERHORING]", "")
-                
                 with st.chat_message(role, avatar=avatar_icoon):
                     st.markdown(weergave_tekst.strip())
 
-        # 8. HET VASTE INVOERVELD
         prompt = st.chat_input("Typ hier je antwoord of keuze...")
 
-        # 9. Invoer verwerken en API aanroepen
         if prompt and "chat" in st.session_state and st.session_state.chat is not None:
-            
             st.session_state.berichten.append(("user", prompt))
             with st.chat_message("user", avatar="🎓"):
                 st.markdown(prompt)
@@ -155,7 +169,7 @@ Volg EXACT deze chronologische structuur:
             with st.chat_message("assistant", avatar="🧑‍🏫"):
                 st.markdown(weergave_tekst_bot.strip())
                 
-            # Als de overhoring klaar is, of afgebroken, sla het resultaat op
+            # Bestand per Havo cluster, tabblad per les
             if "[EINDE_OVERHORING]" in output_tekst:
                 cijfer_match = re.search(r'\[CIJFER:\s*([\-\d\,\.]+)\]', output_tekst)
                 cijfer = ""
@@ -170,12 +184,14 @@ Volg EXACT deze chronologische structuur:
                         cijfer = cijfer_str
                 
                 schone_beoordeling = weergave_tekst_bot.strip()
-                excel_bestand = "leerling_resultaten_Havo.xlsx"
+                
+                excel_bestand = f"Resultaten_{cluster}.xlsx"
+                
+                tabblad_naam = re.sub(r'[\[\]\:\*\?/\\]', '', gekozen_les.replace('.docx', ''))[:31]
                 
                 nieuw_resultaat = pd.DataFrame([{
                     "Tijdstip": datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
                     "Voornaam": voornaam,
-                    "Cluster": cluster,
                     "Les": gekozen_les,
                     "Cijfer": cijfer,
                     "Beoordeling (Feedback AI)": schone_beoordeling
@@ -183,14 +199,19 @@ Volg EXACT deze chronologische structuur:
                 
                 if os.path.exists(excel_bestand):
                     try:
-                        df_bestaand = pd.read_excel(excel_bestand)
-                        df_compleet = pd.concat([df_bestaand, nieuw_resultaat], ignore_index=True)
+                        alle_data = pd.read_excel(excel_bestand, sheet_name=None)
+                        if tabblad_naam in alle_data:
+                            alle_data[tabblad_naam] = pd.concat([alle_data[tabblad_naam], nieuw_resultaat], ignore_index=True)
+                        else:
+                            alle_data[tabblad_naam] = nieuw_resultaat
                     except Exception:
-                        df_compleet = nieuw_resultaat
+                        alle_data = {tabblad_naam: nieuw_resultaat}
                 else:
-                    df_compleet = nieuw_resultaat
+                    alle_data = {tabblad_naam: nieuw_resultaat}
                     
-                df_compleet.to_excel(excel_bestand, index=False)
+                with pd.ExcelWriter(excel_bestand, engine='openpyxl') as writer:
+                    for sheet_name, df_sheet in alle_data.items():
+                        df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
                 
                 if "Ga de stof nogmaals bestuderen" in output_tekst:
                     st.info("De overhoring is afgebroken. Succes met studeren en tot de volgende keer!")
@@ -201,46 +222,66 @@ Volg EXACT deze chronologische structuur:
                     else:
                         st.success("✅ Je resultaten zijn opgeslagen. Blijf goed oefenen, volgende keer gaat het vast beter! Je kunt dit venster nu sluiten.")
 
-# --- DOCENTENPANEEL (VOLLEDIG BEVEILIGD) ---
+# --- DOCENTENPANEEL ---
 st.sidebar.divider()
-st.sidebar.header("👨‍🏫 Docentenpaneel")
+st.sidebar.header("👨‍🏫 Docentenpaneel (Havo)")
 
 wachtwoord = st.sidebar.text_input("Wachtwoord docent:", type="password")
 
-# Alles hieronder is onzichtbaar totdat het juiste wachtwoord is ingevoerd
-if wachtwoord == "M@@rt3n": 
+if wachtwoord == "PieterZandt2026!": 
     
-    excel_bestand = "leerling_resultaten_Havo.xlsx"
+    st.sidebar.subheader("📊 Resultaten Beheren")
+    beheer_cluster = st.sidebar.selectbox("Kies het cluster dat je wilt bekijken:", cluster_opties)
+    
+    excel_bestand = f"Resultaten_{beheer_cluster}.xlsx"
 
-    # Statistieken & Downloads
     if os.path.exists(excel_bestand):
-        df = pd.read_excel(excel_bestand)
-        df['Cijfer'] = pd.to_numeric(df['Cijfer'], errors='coerce')
-        
-        st.sidebar.subheader("📊 Live Statistieken")
-        gemiddelde = df['Cijfer'].mean()
-        st.sidebar.metric(label="Gemiddeld Cijfer (Alle clusters)", value=f"{gemiddelde:.1f}")
-        
-        st.sidebar.write("**Aantal deelnames per cluster:**")
-        st.sidebar.dataframe(df['Cluster'].value_counts(), use_container_width=True)
-        
-        st.sidebar.divider()
-        
-        st.sidebar.subheader("📥 Resultaten Exporteren")
-        with open(excel_bestand, "rb") as file:
-            st.sidebar.download_button(
-                label="Download Resultaten (Excel)",
-                data=file,
-                file_name=f"Resultaten_Aardrijkskunde_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        try:
+            alle_data = pd.read_excel(excel_bestand, sheet_name=None)
+            df_all = pd.concat(alle_data.values(), ignore_index=True)
+            df_all['Cijfer'] = pd.to_numeric(df_all['Cijfer'], errors='coerce')
+            
+            gemiddelde = df_all['Cijfer'].mean()
+            st.sidebar.metric(label=f"Gemiddeld Cijfer ({beheer_cluster})", value=f"{gemiddelde:.1f}")
+            
+            st.sidebar.write("**Aantal deelnames per paragraaf/les:**")
+            st.sidebar.dataframe(df_all['Les'].value_counts(), use_container_width=True)
+            
+            st.sidebar.divider()
+            
+            st.sidebar.subheader("📥 Exporteren")
+            with open(excel_bestand, "rb") as file:
+                st.sidebar.download_button(
+                    label=f"Download Resultaten {beheer_cluster}",
+                    data=file,
+                    file_name=f"Resultaten_{beheer_cluster}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            
+            st.sidebar.divider()
+            
+            st.sidebar.subheader("🗑️ Wissen")
+            st.sidebar.write(f"Verwijder alle oude resultaten van **{beheer_cluster}** om opnieuw te beginnen.")
+            
+            bevestiging = st.sidebar.checkbox(f"Ja, ik wil de resultaten van {beheer_cluster} wissen")
+            
+            if bevestiging:
+                if st.sidebar.button(f"🚨 Wis {beheer_cluster} resultaten", type="primary"):
+                    os.remove(excel_bestand)
+                    st.sidebar.success(f"Resultaten van {beheer_cluster} succesvol gewist!")
+                    st.rerun()
+
+        except Exception as e:
+            st.sidebar.error(f"Fout bij het lezen van Excel: {e}")
+            if st.sidebar.button("Forceer wissen corrupt bestand"):
+                os.remove(excel_bestand)
+                st.rerun()
     else:
-        st.sidebar.info("Er zijn nog geen resultaten opgeslagen.")
+        st.sidebar.info(f"Er zijn nog geen resultaten voor cluster {beheer_cluster}.")
 
     st.sidebar.divider()
 
-    # Bestand Upload (Nu ook veilig achter het wachtwoord)
-    st.sidebar.subheader("📄 Nieuwe les uploaden")
+    st.sidebar.subheader("📄 Nieuwe Havo les uploaden")
     st.sidebar.write("Voeg direct een nieuw Word-document toe aan het keuzemenu.")
     
     uploaded_file = st.sidebar.file_uploader("Kies een .docx bestand", type=["docx"])
